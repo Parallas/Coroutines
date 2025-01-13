@@ -150,7 +150,10 @@ IEnumerator DownloadFile(string url, string toFile)
         yield return null;
 
     if(!download.IsCompletedSuccessfully)
+    {
+        Console.WriteLine($"Failed to download {url}!");
         yield break;
+    }
 
     using var file = File.Open(toFile, FileMode.Create);
     var copyTask = task.Result.CopyToAsync(file);
@@ -189,6 +192,8 @@ IEnumerator DownloadAllAtOnce()
     }
 }
 ```
+
+In addition, the [Dialog Code](https://github.com/PixelDough/ElevatorGame/blob/main/ElevatorGame/Source/Dialog/Dialog.cs#L70) in Deep Space Bellhop is a great example of this system being used in practice.
 
 ## Why coroutines?
 
