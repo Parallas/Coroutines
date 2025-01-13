@@ -1,3 +1,9 @@
+> [!NOTE]
+> This fork is exclusively designed to be used within **framerate-dependent** games. It does not support or account for variable framerate in any way.
+> If you prefer to use something that accounts for delta time, check out one of the parent repositories that this fork is based on.
+>
+> Additionally, this fork may not work at all in .net 7.0 or older due to the usage of the newer .net 8.0 syntax.
+
 # Coroutines
 A simple system for running nested coroutines in C#. Just drop `Coroutines.cs` into your project and you're ready to go.
 
@@ -8,25 +14,25 @@ In this context, a "coroutine" is basically one of these functions, but wrapped 
 
 - A container that will automatically update several coroutines for you
 - A simple syntax for nesting coroutines so they can yield to others
-- The ability to yield a floating point number, which will pause the routine for a desired amount of time
-- Handles to routines are provided to make tracking them easier
+- The ability to yield an integer number, which will pause the routine for a desired amount of updates
+- Handles and names to routines are provided to make tracking them easier
 
 ## Example usage
-To use the system, you need to create a `CoroutineRunner` and update it at regular intervals (eg. in a game loop). You also need to tell it a time interval.
+To use the system, you need to create a `CoroutineRunner` and update it at regular intervals (eg. in a game loop).
 
 ```csharp
 CoroutineRunner runner = new CoroutineRunner();
 
-void UpdateGame(float deltaTime)
+void UpdateGame()
 {
-    runner.Update(deltaTime);
+    runner.Update();
 }
 ```
 
-Now you can run coroutines by calling `Run()`. Here's a simple coroutine that counts:
+Now you can run coroutines by calling `Run()` or `TryRun()`. Here's a simple coroutine that counts:
 
 ```csharp
-IEnumerator CountTo(int num, float delay)
+IEnumerator CountTo(int num, int delay)
 {
     for (int i = 1; i <= num; ++i)
     {
@@ -36,12 +42,12 @@ IEnumerator CountTo(int num, float delay)
 }
 void StartGame()
 {
-    //Count to 10, pausing 1 second between each number
-    runner.Run(CountTo(10, 1.0f));
+    // Count to 10, pausing 60 frames between each number
+    runner.Run("counting", CountTo(10, 60), 0);
 }
 ```
 
-When you yield a floating-point number, it will pause the coroutine for that many seconds.
+When you yield an integer number, it will pause the coroutine for that many frames.
 
 You can also nest coroutines by yielding to them. Here we will have a parent routine that will run several sub-routines:
 
@@ -49,35 +55,41 @@ You can also nest coroutines by yielding to them. Here we will have a parent rou
 IEnumerator DoSomeCounting()
 {
     Console.WriteLine("Counting to 3 slowly...");
-    yield return CountTo(3, 2.0f);
+    yield return CountTo(3, 120);
     Console.WriteLine("Done!");
 
     Console.WriteLine("Counting to 5 normally...");
-    yield return CountTo(5, 1.0f);
+    yield return CountTo(5, 60);
     Console.WriteLine("Done!");
 
     Console.WriteLine("Counting to 99 quickly...");
-    yield return CountTo(99, 0.1f);
+    yield return CountTo(99, 6);
     Console.WriteLine("Done!");
 }
 
 void StartGame()
 {
-    runner.Run(DoSomeCounting());
+    runner.Run("my_coroutine", DoSomeCounting(), 0);
 }
 ```
 
 You can also stop any running routines:
 
 ```csharp
-//Stop all running routines
+// Stop all running routines
 runner.StopAll();
 
-//Start a routine and store a handle to it
-CoroutineHandle myRoutine = runner.Run(SomeRoutine());
+// Start a routine and store a handle to it
+CoroutineHandle myRoutine = runner.Run("some_routine", SomeRoutine(), 0);
 
-//Stop a specific routine
+// Alternately:
+bool success = runner.TryRun("some_routine", SomeRoutine(), 0, out CoroutineHandle myRoutine);
+
+// Stop a specific routine
 myRoutine.Stop();
+
+// Alternatively:
+runner.Stop("some_routine");
 ```
 
 ## Other tips and tricks
@@ -109,18 +121,18 @@ IEnumerator EnemyBehavior()
 }
 ```
 
-Sometimes you might want to run multiple routines in parallel, and have a parent routine wait for them both to finish. For this you can use the return handle from `Run()`:
+Sometimes you might want to run multiple routines in parallel, and have a parent routine wait for them both to finish. For this you can use the return handle from `Run()` or `TryRun()`:
 
 ```csharp
 IEnumerator GatherNPCs(Vector gatheringPoint)
 {
     //Make three NPCs walk to the gathering point at the same time
-    var move1 = runner.Run(npc1.WalkTo(gatheringPoint));
-    var move2 = runner.Run(npc2.WalkTo(gatheringPoint));
-    var move3 = runner.Run(npc3.WalkTo(gatheringPoint));
+    var move1 = runner.Run("npc1_gather", npc1.WalkTo(gatheringPoint), 0);
+    var move2 = runner.Run("npc2_gather", npc2.WalkTo(gatheringPoint), 0);
+    var move3 = runner.Run("npc3_gather", npc3.WalkTo(gatheringPoint), 0);
 
     //We don't know how long they'll take, so just wait until all three have finished
-    while (move1.IsPlaying || move2.IsPlaying || move3.IsPlaying)
+    while (move1.IsRunning || move2.IsRunning || move3.IsRunning)
         yield return null;
 
     //Now they've all gathered!
@@ -132,23 +144,28 @@ Here is a more complicated example where I show how you can use coroutines in co
 ```csharp
 IEnumerator DownloadFile(string url, string toFile)
 {
-    //I actually don't know how to download files in C# so I just guessed this, but you get the point
-    bool done = false;
-    var client = new WebClient();
-    client.DownloadFileCompleted += (e, b, o) => done = true;
-    client.DownloadFileAsync(new Uri(url), toFile);
-    while (!done)
+    using var client = new HttpClient();
+    var downloadTask = client.GetStreamAsync(package.DownloadUrl);
+    while (!downloadTask.IsCompleted)
+        yield return null;
+
+    if(!download.IsCompletedSuccessfully)
+        yield break;
+
+    using var file = File.Open(toFile, FileMode.Create);
+    var copyTask = task.Result.CopyToAsync(file);
+    while (!copyTask.IsCompleted)
         yield return null;
 }
 
 //Download the files one-by-one in sync
 IEnumerator DownloadOneAtATime()
 {
-    yield return DownloadFile("http://site.com/file1.png", "file1.png");
-    yield return DownloadFile("http://site.com/file2.png", "file2.png");
-    yield return DownloadFile("http://site.com/file3.png", "file3.png");
-    yield return DownloadFile("http://site.com/file4.png", "file4.png");
-    yield return DownloadFile("http://site.com/file5.png", "file5.png");
+    yield return DownloadFile("https://site.com/file1.png", "file1.png");
+    yield return DownloadFile("https://site.com/file2.png", "file2.png");
+    yield return DownloadFile("https://site.com/file3.png", "file3.png");
+    yield return DownloadFile("https://site.com/file4.png", "file4.png");
+    yield return DownloadFile("https://site.com/file5.png", "file5.png");
 }
 
 //Download the files all at once asynchronously
@@ -156,11 +173,11 @@ IEnumerator DownloadAllAtOnce()
 {
     //Start multiple async downloads and store their handles
     var downloads = new List<CoroutineHandle>();
-    downloads.Add(runner.Run(DownloadFile("http://site.com/file1.png", "file1.png")));
-    downloads.Add(runner.Run(DownloadFile("http://site.com/file2.png", "file2.png")));
-    downloads.Add(runner.Run(DownloadFile("http://site.com/file3.png", "file3.png")));
-    downloads.Add(runner.Run(DownloadFile("http://site.com/file4.png", "file4.png")));
-    downloads.Add(runner.Run(DownloadFile("http://site.com/file5.png", "file5.png")));
+    downloads.Add(runner.Run("download_file1", DownloadFile("http://site.com/file1.png", "file1.png"), 0));
+    downloads.Add(runner.Run("download_file2", DownloadFile("http://site.com/file2.png", "file2.png"), 0));
+    downloads.Add(runner.Run("download_file3", DownloadFile("http://site.com/file3.png", "file3.png"), 0));
+    downloads.Add(runner.Run("download_file4", DownloadFile("http://site.com/file4.png", "file4.png"), 0));
+    downloads.Add(runner.Run("download_file5", DownloadFile("http://site.com/file5.png", "file5.png"), 0));
 
     //Wait until all downloads are done
     while (downloads.Count > 0)
