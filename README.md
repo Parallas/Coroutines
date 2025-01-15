@@ -193,8 +193,6 @@ IEnumerator DownloadAllAtOnce()
 }
 ```
 
-In addition, the [Dialog Code](https://github.com/PixelDough/ElevatorGame/blob/main/ElevatorGame/Source/Dialog/Dialog.cs#L70) in Deep Space Bellhop is a great example of this system being used in practice.
-
 ## Why coroutines?
 
 I use coroutines a lot in my games, as I find them great for organizing actor behavior and animations. As opposed to an async callback-based system, coroutines allow you to write your behaviors line-by-line, like how you would naturally write code, and result in very clean and easy to understand sequences.
